@@ -14,14 +14,18 @@ COMMANDS: dict[str, str] = {
     "/init": "Create ABU.md project context file",
     "/clear": "Clear conversation history",
     "/compact": "Compress conversation context to save tokens",
-    "/yolo": "Toggle auto-approve mode (skip permission prompts)",
+    "/undo": "Undo last file change",
+    "/changes": "Show files Abu has modified",
+    "/yolo": "Toggle auto-approve mode",
     "/cost": "Show token usage and cost",
     "/model": "Switch model: /model <name>",
     "/theme": "Switch theme: /theme <name>",
+    "/test": "Detect and run project tests",
+    "/commit": "Generate commit message and commit",
+    "/diff": "Show git diff",
     "/mcp": "Show connected MCP servers",
     "/resume": "Resume a previous session",
-    "/commit": "Generate commit message and commit",
-    "/diff": "Show git diff of current changes",
+    "/config": "Show/edit configuration",
     "/context": "Show loaded context sources",
     "/quit": "Exit the CLI",
 }
@@ -47,8 +51,14 @@ async def dispatch_command(raw: str, state: "REPLState") -> None:
         _cmd_theme(state, arg)
     elif cmd == "/compact":
         _cmd_compact(state)
+    elif cmd == "/undo":
+        _cmd_undo(state)
+    elif cmd == "/changes":
+        _cmd_changes(state)
     elif cmd == "/yolo":
         _cmd_yolo(state)
+    elif cmd == "/test":
+        await _cmd_test(state)
     elif cmd == "/mcp":
         _cmd_mcp(state)
     elif cmd == "/resume":
@@ -57,6 +67,8 @@ async def dispatch_command(raw: str, state: "REPLState") -> None:
         await _cmd_commit(state, arg)
     elif cmd == "/diff":
         await _cmd_diff(state)
+    elif cmd == "/config":
+        _cmd_config(state)
     elif cmd in ("/quit", "/exit", "/q"):
         raise SystemExit(0)
     elif cmd == "/context":
@@ -370,6 +382,72 @@ def _cmd_compact(state: "REPLState") -> None:
     state.renderer.console.print(
         f"  [bold green]✓[/bold green] Compacted: {before_count} → {after_count} messages"
     )
+    state.renderer.console.print()
+
+
+def _cmd_undo(state: "REPLState") -> None:
+    """Undo the last file change."""
+    from abu_cli.tools import undo_last
+    result = undo_last()
+    if result:
+        state.renderer.console.print(f"  [bold green]✓[/bold green] {result}")
+    else:
+        state.renderer.render_info("Nothing to undo.")
+
+
+def _cmd_changes(state: "REPLState") -> None:
+    """Show files Abu has modified this session."""
+    from abu_cli.tools import get_recent_changes, get_change_count
+    changes = get_recent_changes(10)
+    total = get_change_count()
+    if not changes:
+        state.renderer.render_info("No file changes this session.")
+        return
+    state.renderer.console.print()
+    state.renderer.console.print(f"[bold]Files modified ({total} total):[/bold]")
+    seen = set()
+    for c in changes:
+        p = c["path"]
+        if p not in seen:
+            kind = "new" if c["old_content"] is None else "modified"
+            state.renderer.console.print(f"  [cyan]{p}[/cyan] [dim]({kind})[/dim]")
+            seen.add(p)
+    state.renderer.console.print()
+
+
+async def _cmd_test(state: "REPLState") -> None:
+    """Auto-detect and run project tests."""
+    from abu_cli.repl import _process_turn
+    prompt = (
+        "Detect what test framework this project uses (pytest, jest, cargo test, go test, etc.) "
+        "and run the tests. Show me the results summary."
+    )
+    await _process_turn(state, prompt)
+
+
+def _cmd_config(state: "REPLState") -> None:
+    """Show current configuration."""
+    import json
+    config_file = Path.home() / ".abu" / "config.json"
+    state.renderer.console.print()
+    state.renderer.console.print(f"[bold]Config:[/bold] {config_file}")
+    if config_file.exists():
+        try:
+            config = json.loads(config_file.read_text())
+            # Mask API keys
+            display = json.loads(json.dumps(config))
+            for name, prov in display.get("providers", {}).items():
+                if "api_key" in prov:
+                    key = prov["api_key"]
+                    prov["api_key"] = key[:8] + "..." + key[-4:] if len(key) > 12 else "***"
+            from rich.syntax import Syntax
+            state.renderer.console.print(
+                Syntax(json.dumps(display, indent=2, ensure_ascii=False), "json", theme="monokai")
+            )
+        except Exception as e:
+            state.renderer.render_error(f"Failed to read config: {e}")
+    else:
+        state.renderer.render_info("No config file. Create ~/.abu/config.json")
     state.renderer.console.print()
 
 

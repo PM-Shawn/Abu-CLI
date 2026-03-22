@@ -33,6 +33,10 @@ def write_file(file_path: str, content: str) -> str:
         )
 
     try:
+        # Record for undo
+        old_content = p.read_text(encoding="utf-8") if p.exists() else None
+        tools_tracker.record_change(str(p), old_content)
+
         # Create parent directories if needed
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")

@@ -14,6 +14,9 @@ READ_ONLY_TOOLS = [read_file, glob_search, grep_search, web_search]
 # Track which files have been read (for read-before-write validation)
 _read_files: set[str] = set()
 
+# Track file changes for /undo (path -> previous content or None if new file)
+_file_history: list[dict] = []
+
 
 def mark_file_read(path: str) -> None:
     _read_files.add(str(path))
@@ -25,3 +28,36 @@ def has_been_read(path: str) -> bool:
 
 def reset_read_tracking() -> None:
     _read_files.clear()
+
+
+def record_change(path: str, old_content: str | None) -> None:
+    """Record a file change for undo. old_content=None means new file."""
+    _file_history.append({"path": path, "old_content": old_content})
+
+
+def undo_last() -> str | None:
+    """Undo the last file change. Returns description or None."""
+    if not _file_history:
+        return None
+    change = _file_history.pop()
+    path = change["path"]
+    old = change["old_content"]
+    from pathlib import Path
+    p = Path(path)
+    if old is None:
+        # Was a new file — delete it
+        if p.exists():
+            p.unlink()
+            return f"Deleted {path} (was newly created)"
+    else:
+        p.write_text(old, encoding="utf-8")
+        return f"Restored {path}"
+    return None
+
+
+def get_change_count() -> int:
+    return len(_file_history)
+
+
+def get_recent_changes(n: int = 5) -> list[dict]:
+    return list(reversed(_file_history[-n:]))

@@ -77,6 +77,9 @@ def edit_file(
             f"or set replace_all=True to replace all occurrences."
         )
 
+    # Record for undo
+    tools_tracker.record_change(str(p), content)
+
     # Perform replacement
     new_content = content.replace(old_string, new_string, -1 if replace_all else 1)
 
