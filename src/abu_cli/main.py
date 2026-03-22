@@ -72,6 +72,7 @@ def _ensure_project_dir(cwd: Path) -> None:
 @click.option("-r", "--resume", "resume_id", default=None, help="Resume session by ID")
 @click.option("-c", "--continue", "continue_last", is_flag=True, help="Continue last session")
 @click.option("--yolo", is_flag=True, help="Auto-approve all tool calls (no permission prompts)")
+@click.option("-q", "--quiet", is_flag=True, help="Minimal output (no welcome banner)")
 def main(
     prompt: tuple[str, ...],
     model: str | None,
@@ -79,6 +80,7 @@ def main(
     resume_id: str | None,
     continue_last: bool,
     yolo: bool,
+    quiet: bool,
 ) -> None:
     """Abu — Interactive AI coding assistant, powered by AgentX.
 
@@ -135,6 +137,7 @@ def main(
         permissions=permissions,
         config=config,
         yolo_mode=yolo,
+        quiet_mode=quiet,
     )
 
     # Handle --resume / --continue

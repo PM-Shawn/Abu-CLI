@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -50,6 +51,7 @@ class REPLState:
     mcp_manager: Any = None
     session_id: str = ""
     yolo_mode: bool = False
+    quiet_mode: bool = False
 
 
 # ── Permission prompt ───────────────────────────────────────────
@@ -279,11 +281,12 @@ async def start(state: REPLState, initial_prompt: str | None = None) -> None:
         state.agent, state.permissions, state.renderer
     )
 
-    state.renderer.render_welcome(
-        model=state.model,
-        cwd=str(state.cwd),
-        version=__version__,
-    )
+    if not state.quiet_mode:
+        state.renderer.render_welcome(
+            model=state.model,
+            cwd=str(state.cwd),
+            version=__version__,
+        )
 
     # Handle initial prompt
     if initial_prompt:
@@ -294,12 +297,21 @@ async def start(state: REPLState, initial_prompt: str | None = None) -> None:
     history_dir.mkdir(parents=True, exist_ok=True)
     history_file = history_dir / "history"
 
+    # Auto-complete for slash commands
+    from abu_cli.commands import COMMANDS
+    cmd_completer = WordCompleter(
+        list(COMMANDS.keys()),
+        sentence=True,  # complete whole command
+    )
+
     session: PromptSession = PromptSession(
         history=FileHistory(str(history_file)),
         bottom_toolbar=lambda: _make_bottom_toolbar(state),
         style=PT_STYLE,
         key_bindings=_make_key_bindings(),
-        multiline=False,  # Enter submits, Option+Enter for newline
+        multiline=False,
+        completer=cmd_completer,
+        complete_while_typing=False,  # only complete on Tab
     )
 
     while True:

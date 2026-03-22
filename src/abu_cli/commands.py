@@ -16,6 +16,7 @@ COMMANDS: dict[str, str] = {
     "/compact": "Compress conversation context to save tokens",
     "/undo": "Undo last file change",
     "/changes": "Show files Abu has modified",
+    "/history": "Show conversation turns",
     "/yolo": "Toggle auto-approve mode",
     "/cost": "Show token usage and cost",
     "/model": "Switch model: /model <name>",
@@ -23,6 +24,7 @@ COMMANDS: dict[str, str] = {
     "/test": "Detect and run project tests",
     "/commit": "Generate commit message and commit",
     "/diff": "Show git diff",
+    "/doctor": "Check environment and connectivity",
     "/mcp": "Show connected MCP servers",
     "/resume": "Resume a previous session",
     "/config": "Show/edit configuration",
@@ -67,6 +69,10 @@ async def dispatch_command(raw: str, state: "REPLState") -> None:
         await _cmd_commit(state, arg)
     elif cmd == "/diff":
         await _cmd_diff(state)
+    elif cmd == "/doctor":
+        await _cmd_doctor(state)
+    elif cmd == "/history":
+        _cmd_history(state)
     elif cmd == "/config":
         _cmd_config(state)
     elif cmd in ("/quit", "/exit", "/q"):
@@ -449,6 +455,115 @@ def _cmd_config(state: "REPLState") -> None:
     else:
         state.renderer.render_info("No config file. Create ~/.abu/config.json")
     state.renderer.console.print()
+
+
+async def _cmd_doctor(state: "REPLState") -> None:
+    """Check environment, dependencies, and API connectivity."""
+    import asyncio
+    import shutil
+
+    c = state.renderer.console
+    c.print()
+    c.print("[bold]Abu Doctor[/bold]")
+    c.print()
+
+    # Python version
+    import sys
+    py = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    ok = sys.version_info >= (3, 11)
+    icon = "[green]✓[/green]" if ok else "[red]✗[/red]"
+    c.print(f"  {icon} Python {py}" + ("" if ok else " [red](need ≥3.11)[/red]"))
+
+    # uv
+    uv = shutil.which("uv")
+    icon = "[green]✓[/green]" if uv else "[yellow]○[/yellow]"
+    c.print(f"  {icon} uv: {'found' if uv else 'not found'}")
+
+    # git
+    git = shutil.which("git")
+    icon = "[green]✓[/green]" if git else "[yellow]○[/yellow]"
+    c.print(f"  {icon} git: {'found' if git else 'not found'}")
+
+    # curl
+    curl = shutil.which("curl")
+    icon = "[green]✓[/green]" if curl else "[yellow]○[/yellow]"
+    c.print(f"  {icon} curl: {'found' if curl else 'not found (web search disabled)'}")
+
+    # Config
+    config_file = Path.home() / ".abu" / "config.json"
+    icon = "[green]✓[/green]" if config_file.exists() else "[red]✗[/red]"
+    c.print(f"  {icon} Config: {config_file}")
+
+    # ABU.md
+    abu_md = state.cwd / "ABU.md"
+    icon = "[green]✓[/green]" if abu_md.exists() else "[dim]○[/dim]"
+    c.print(f"  {icon} ABU.md: {'found' if abu_md.exists() else 'not found (run /init)'}")
+
+    # Model connectivity
+    c.print(f"  [dim]…[/dim] Testing model: {state.model}")
+    try:
+        from agentx.loop.runner import Runner
+        from agentx.types import Message as Msg
+        result = await asyncio.wait_for(
+            Runner.run(state.agent, [Msg.user("Say OK")]),
+            timeout=15,
+        )
+        if result.final_output:
+            c.print(f"  [green]✓[/green] Model responds: [dim]{result.final_output[:50]}[/dim]")
+        else:
+            c.print(f"  [red]✗[/red] Model returned empty response")
+    except asyncio.TimeoutError:
+        c.print(f"  [red]✗[/red] Model timeout (15s)")
+    except Exception as e:
+        c.print(f"  [red]✗[/red] Model error: {e}")
+
+    # MCP
+    if state.mcp_manager and state.mcp_manager.server_info:
+        for name, count in state.mcp_manager.server_info.items():
+            c.print(f"  [green]✓[/green] MCP '{name}': {count} tools")
+    else:
+        c.print(f"  [dim]○[/dim] MCP: no servers configured")
+
+    c.print()
+
+
+def _cmd_history(state: "REPLState") -> None:
+    """Show conversation turns."""
+    if not state.messages:
+        state.renderer.render_info("No conversation yet.")
+        return
+
+    c = state.renderer.console
+    c.print()
+    c.print(f"[bold]Conversation ({len(state.messages)} messages):[/bold]")
+    c.print()
+
+    for i, m in enumerate(state.messages):
+        role = m.role
+        if isinstance(m.content, str):
+            text = m.content
+        elif isinstance(m.content, list):
+            texts = []
+            for b in m.content:
+                if hasattr(b, "text"):
+                    texts.append(b.text)
+            text = " ".join(texts)
+        else:
+            text = str(m.content)
+
+        # Truncate
+        preview = text[:80].replace("\n", " ")
+        if len(text) > 80:
+            preview += "…"
+
+        if role == "user":
+            c.print(f"  [bold cyan]›[/bold cyan] {preview}")
+        else:
+            c.print(f"  [dim]●[/dim] [dim]{preview}[/dim]")
+
+    c.print()
+    c.print(f"  [dim]Session: {state.session_id}[/dim]")
+    c.print()
 
 
 def _cmd_yolo(state: "REPLState") -> None:
