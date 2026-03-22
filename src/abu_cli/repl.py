@@ -184,6 +184,7 @@ async def _process_turn(state: REPLState, user_input: str) -> None:
             state.agent,
             state.messages,
             cancellation_token=token,
+            max_turns=20,  # Prevent infinite tool loops
         )
         done = await state.renderer.render_stream(stream)
 

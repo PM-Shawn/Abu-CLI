@@ -126,6 +126,25 @@ class Renderer:
         finally:
             self._set_terminal_echo(True)
 
+    def _flush_live(self, live, panels: list, text_buffer: str) -> str:
+        """Flush completed items from Live to console, return remaining text."""
+        # Stop Live temporarily to print completed content
+        live.update("")
+
+        # Print all completed panels
+        for p in panels:
+            self.console.print(p)
+        panels.clear()
+
+        # Print completed text as Markdown
+        if text_buffer:
+            t = self.theme
+            bullet = Text("● ", style=t.ai_bullet, end="")
+            md = Markdown(text_buffer)
+            self.console.print(Group(bullet, md))
+
+        return ""  # text buffer is now flushed
+
     async def _render_stream_inner(
         self, stream: AsyncIterator[StreamEvent]
     ) -> DoneEvent | None:
@@ -133,9 +152,11 @@ class Renderer:
         text_buffer = ""
         thinking_buffer = ""
         current_tool = ""
+        current_summary = ""
         done_event: DoneEvent | None = None
-        pending_panels: list = []
+        current_panels: list = []
         last_render = 0.0
+        tool_in_progress = False
 
         with Live(
             "",
@@ -146,63 +167,71 @@ class Renderer:
             async for event in stream:
                 if isinstance(event, ThinkingDeltaEvent):
                     thinking_buffer += event.delta
-                    # Show thinking indicator
                     if len(thinking_buffer) < 20:
                         live.update(
                             Text("● thinking…", style=f"{t.dim} italic")
                         )
 
                 elif isinstance(event, TextDeltaEvent):
+                    # If we had tool panels, flush them first
+                    if current_panels:
+                        text_buffer = self._flush_live(live, current_panels, text_buffer)
                     text_buffer += event.delta
                     now = time.monotonic()
                     if now - last_render > 0.08:
-                        live.update(self._build_display(text_buffer, pending_panels))
+                        live.update(self._build_display(text_buffer, []))
                         last_render = now
 
                 elif isinstance(event, ToolCallStartEvent):
+                    # Flush any previous text before tool
                     if text_buffer:
-                        live.update(self._build_display(text_buffer, pending_panels))
+                        text_buffer = self._flush_live(live, current_panels, text_buffer)
                     current_tool = event.tool_name
-                    spinner = self._make_tool_spinner(current_tool)
-                    pending_panels.append(spinner)
-                    live.update(self._build_display(text_buffer, pending_panels))
+                    tool_in_progress = True
+                    live.update(self._make_tool_spinner(current_tool))
 
                 elif isinstance(event, ToolCallEndEvent):
                     args = event.arguments
-                    summary = self._summarize_args(current_tool, args)
-                    if pending_panels:
-                        pending_panels.pop()
-                    tool_label = self._make_tool_label(current_tool, summary)
-                    pending_panels.append(tool_label)
-                    live.update(self._build_display(text_buffer, pending_panels))
+                    current_summary = self._summarize_args(current_tool, args)
+                    tool_label = self._make_tool_label(current_tool, current_summary)
+                    live.update(tool_label)
 
                 elif isinstance(event, ToolResultEvent):
                     result_line = self._make_result_line(
                         event.output, event.is_error, current_tool
                     )
-                    pending_panels.append(result_line)
-                    live.update(self._build_display(text_buffer, pending_panels))
+                    # Flush tool label + result immediately to console
+                    live.update("")
+                    self.console.print(
+                        self._make_tool_label(current_tool, current_summary)
+                    )
+                    self.console.print(result_line)
+                    tool_in_progress = False
 
                 elif isinstance(event, ErrorEvent):
-                    pending_panels.append(
+                    live.update("")
+                    self.console.print(
                         Text.from_markup(
                             f"  [{t.error}]✗ Error: {event.message}[/{t.error}]"
                         )
                     )
-                    live.update(self._build_display(text_buffer, pending_panels))
 
                 elif isinstance(event, HandoffEvent):
-                    pending_panels.append(
+                    live.update("")
+                    self.console.print(
                         Text.from_markup(
                             f"  [magenta]→ {event.from_agent} → {event.to_agent}[/magenta]"
                         )
                     )
-                    live.update(self._build_display(text_buffer, pending_panels))
 
                 elif isinstance(event, DoneEvent):
                     done_event = event
 
-            live.update(self._build_display(text_buffer, pending_panels, final=True))
+            # Final: flush any remaining text
+            if text_buffer:
+                live.update(self._build_display(text_buffer, [], final=True))
+            else:
+                live.update("")
 
         if done_event:
             usage = done_event.usage
