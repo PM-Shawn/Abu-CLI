@@ -66,6 +66,7 @@ def _ensure_project_dir(cwd: Path) -> None:
 
 
 @click.command(context_settings={"ignore_unknown_options": True})
+@click.version_option(version="0.1.0", prog_name="Abu CLI")
 @click.argument("prompt", required=False, nargs=-1)
 @click.option("-m", "--model", default=None, help="Model to use")
 @click.option("-p", "--print", "pipe_mode", is_flag=True, help="Print and exit")

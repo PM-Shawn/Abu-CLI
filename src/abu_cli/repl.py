@@ -240,9 +240,10 @@ def _make_bottom_toolbar(state: REPLState) -> HTML:
     turns = len([m for m in state.messages if m.role == "user"])
     cost = f"${state.total_cost:.4f}" if state.total_cost > 0 else "$0"
     yolo = " · <ansired><b>YOLO</b></ansired>" if state.yolo_mode else ""
+    plan = " · <ansiblue><b>PLAN</b></ansiblue>" if state.plan_mode else ""
     return HTML(
         f'<b>/help</b> for commands'
-        f'{yolo}'
+        f'{yolo}{plan}'
         f'                    '
         f'<ansiyellow>{state.model}</ansiyellow> · cost: {cost}'
     )

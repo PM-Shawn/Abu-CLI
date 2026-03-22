@@ -1,8 +1,24 @@
 [project]
-name = "Abu-CLI"
+name = "abu-cli"
 version = "0.1.0"
-description = "Abu CLI — Interactive AI coding assistant, powered by AgentX framework"
+description = "Abu CLI — Interactive AI coding assistant in your terminal, powered by AgentX"
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.11"
+authors = [
+    {name = "PM-Shawn"},
+]
+keywords = ["ai", "cli", "coding-assistant", "agent", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "agentx @ file:///Users/didi/Documents/PM/ClaudeCodeDev/agentx",
     "prompt-toolkit>=3.0.0",
@@ -10,12 +26,17 @@ dependencies = [
     "click>=8.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/PM-Shawn/Abu-CLI"
+Repository = "https://github.com/PM-Shawn/Abu-CLI"
+
 [project.scripts]
 Abu = "abu_cli.main:main"
 abu = "abu_cli.main:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "pytest-asyncio>=0.21"]
+mcp = ["mcp>=1.0.0"]
 
 [build-system]
 requires = ["hatchling"]

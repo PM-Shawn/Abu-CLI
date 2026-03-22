@@ -17,6 +17,7 @@ COMMANDS: dict[str, str] = {
     "/undo": "Undo last file change",
     "/changes": "Show files Abu has modified",
     "/history": "Show conversation turns",
+    "/plan": "Toggle plan mode (read-only, no file changes)",
     "/yolo": "Toggle auto-approve mode",
     "/cost": "Show token usage and cost",
     "/model": "Switch model: /model <name>",
@@ -27,6 +28,8 @@ COMMANDS: dict[str, str] = {
     "/doctor": "Check environment and connectivity",
     "/mcp": "Show connected MCP servers",
     "/resume": "Resume a previous session",
+    "/providers": "Quick-setup model providers",
+    "/status": "Project overview (git, deps, structure)",
     "/config": "Show/edit configuration",
     "/context": "Show loaded context sources",
     "/quit": "Exit the CLI",
@@ -57,12 +60,18 @@ async def dispatch_command(raw: str, state: "REPLState") -> None:
         _cmd_undo(state)
     elif cmd == "/changes":
         _cmd_changes(state)
+    elif cmd == "/plan":
+        _cmd_plan(state)
     elif cmd == "/yolo":
         _cmd_yolo(state)
     elif cmd == "/test":
         await _cmd_test(state)
     elif cmd == "/mcp":
         _cmd_mcp(state)
+    elif cmd == "/providers":
+        _cmd_providers(state)
+    elif cmd == "/status":
+        await _cmd_status(state)
     elif cmd == "/resume":
         _cmd_resume(state, arg)
     elif cmd == "/commit":
@@ -563,6 +572,141 @@ def _cmd_history(state: "REPLState") -> None:
 
     c.print()
     c.print(f"  [dim]Session: {state.session_id}[/dim]")
+    c.print()
+
+
+def _cmd_plan(state: "REPLState") -> None:
+    """Toggle plan mode — read-only, no file modifications."""
+    from abu_cli.agent import build_agent
+    state.plan_mode = not state.plan_mode
+    state.agent = build_agent(
+        model=state.model, cwd=state.cwd, plan_mode=state.plan_mode
+    )
+    # Re-wrap with permissions
+    from abu_cli.repl import _wrap_tools_with_permissions
+    state.agent = _wrap_tools_with_permissions(
+        state.agent, state.permissions, state.renderer
+    )
+    if state.plan_mode:
+        state.renderer.render_info("Plan mode: ON — read-only, no file changes 📋")
+    else:
+        state.renderer.render_info("Plan mode: OFF — full tool access restored")
+
+
+def _cmd_providers(state: "REPLState") -> None:
+    """Quick-setup guide for providers."""
+    c = state.renderer.console
+    c.print()
+    c.print("[bold]Provider Setup Guide[/bold]")
+    c.print()
+    c.print("Add to [bold]~/.abu/config.json[/bold]:")
+    c.print()
+
+    examples = {
+        "Claude (Anthropic)": {
+            "api_key": "sk-ant-xxx",
+            "format": "anthropic",
+        },
+        "OpenAI": {
+            "api_key": "sk-xxx",
+            "format": "openai",
+        },
+        "DeepSeek": {
+            "api_key": "sk-xxx",
+            "base_url": "https://api.deepseek.com/v1",
+            "format": "openai",
+        },
+        "Ollama (local)": {
+            "api_key": "ollama",
+            "base_url": "http://localhost:11434/v1",
+            "format": "openai",
+        },
+        "OpenRouter": {
+            "api_key": "sk-or-xxx",
+            "base_url": "https://openrouter.ai/api/v1",
+            "format": "openai",
+        },
+    }
+
+    for name, cfg in examples.items():
+        c.print(f"  [bold cyan]{name}[/bold cyan]")
+        import json
+        snippet = json.dumps(cfg, indent=4)
+        c.print(f"  [dim]{snippet}[/dim]")
+        c.print()
+
+    c.print("[dim]Then set model: /model <model-name>[/dim]")
+    c.print()
+
+
+async def _cmd_status(state: "REPLState") -> None:
+    """Project overview — git, deps, structure."""
+    import asyncio
+    c = state.renderer.console
+    c.print()
+    c.print(f"[bold]Project: {state.cwd.name}[/bold]")
+    c.print(f"  [dim]{state.cwd}[/dim]")
+    c.print()
+
+    # Git info
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "branch", "--show-current",
+            cwd=str(state.cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0:
+            branch = stdout.decode().strip()
+            c.print(f"  [green]●[/green] Git branch: [cyan]{branch}[/cyan]")
+
+            # Uncommitted changes
+            proc2 = await asyncio.create_subprocess_exec(
+                "git", "status", "--porcelain",
+                cwd=str(state.cwd),
+                stdout=asyncio.subprocess.PIPE,
+            )
+            stdout2, _ = await proc2.communicate()
+            changes = len(stdout2.decode().strip().splitlines()) if stdout2.decode().strip() else 0
+            if changes:
+                c.print(f"  [yellow]●[/yellow] {changes} uncommitted changes")
+            else:
+                c.print(f"  [green]●[/green] Clean working tree")
+    except Exception:
+        c.print(f"  [dim]○[/dim] Not a git repository")
+
+    # Project type
+    markers = {
+        "pyproject.toml": "Python",
+        "package.json": "Node.js",
+        "Cargo.toml": "Rust",
+        "go.mod": "Go",
+        "pom.xml": "Java",
+    }
+    for marker, lang in markers.items():
+        if (state.cwd / marker).exists():
+            c.print(f"  [green]●[/green] {lang} ({marker})")
+
+    # ABU.md
+    if (state.cwd / "ABU.md").exists():
+        lines = len((state.cwd / "ABU.md").read_text().splitlines())
+        c.print(f"  [green]●[/green] ABU.md ({lines} lines)")
+    else:
+        c.print(f"  [dim]○[/dim] ABU.md not found (run /init)")
+
+    # File count
+    try:
+        files = list(state.cwd.rglob("*"))
+        files = [f for f in files if f.is_file()
+                 and ".git" not in f.parts
+                 and "__pycache__" not in f.parts
+                 and "node_modules" not in f.parts
+                 and ".venv" not in f.parts]
+        c.print(f"  [dim]○[/dim] {len(files)} files")
+    except Exception:
+        pass
+
     c.print()
 
 
